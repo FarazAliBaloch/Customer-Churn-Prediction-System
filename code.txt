@@ -1,0 +1,114 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+
+# STEP 1: CREATE "SMART" MOCK DATA
+
+np.random.seed(42)
+n_rows = 1000
+
+# 1. Generate random features first
+data = {
+    'CustomerID': range(1, n_rows + 1),
+    'Age': np.random.randint(18, 90, n_rows),
+    'Gender': np.random.choice(['Male', 'Female'], n_rows),
+    'Tenure_Months': np.random.randint(1, 72, n_rows),
+    'SubscriptionType': np.random.choice(['Basic', 'Standard', 'Premium'], n_rows),
+    'MonthlyBill': np.random.uniform(30, 150, n_rows),
+    'TotalUsageGB': np.random.uniform(10, 1000, n_rows)
+}
+df = pd.DataFrame(data)
+
+# Save to a file named 'customer_churn_data.csv'
+df.to_csv('customer_churn_data.csv', index=False)
+
+print("CSV saved successfully!")
+
+# 2. ENCODING (We need numbers to calculate the "Churn Score")
+df['Gender_Code'] = df['Gender'].map({'Male': 0, 'Female': 1})
+df['Sub_Code'] = df['SubscriptionType'].map({'Basic': 0, 'Standard': 1, 'Premium': 2})
+
+# 3. GENERATE CHURN BASED ON LOGIC (Not just random!)
+# Formula: Base Score + (Bill * Weight) - (Tenure * Weight)
+# High Bill adds to score (bad), High Tenure subtracts from score (good)
+churn_prob = 0.3 + (df['MonthlyBill'] * 0.005) - (df['Tenure_Months'] * 0.02)
+
+# Add some random noise so it's not "perfect" (Real life is messy)
+churn_prob += np.random.normal(0, 0.1, n_rows)
+
+# Convert probability score into 0 or 1 (Cutoff at 0.5)
+df['Churn'] = (churn_prob > 0.5).astype(int)
+
+# Clean up temp columns used for calculation
+df = df.drop(['Gender_Code', 'Sub_Code'], axis=1)
+
+print(f"Data Generated. Churn Rate: {df['Churn'].mean():.1%}")
+
+
+# STEP 2: PREPROCESSING
+
+df = df.drop('CustomerID', axis=1)
+df['Gender'] = df['Gender'].map({'Male': 0, 'Female': 1})
+df['SubscriptionType'] = df['SubscriptionType'].map({'Basic': 0, 'Standard': 1, 'Premium': 2})
+
+X = df.drop('Churn', axis=1)
+y = df['Churn']
+
+
+# STEP 3: SPLIT
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train = X_train.fillna(0)
+X_test = X_test.fillna(0)
+
+
+# STEP 4: TRAIN MODEL
+
+model = LogisticRegression(class_weight='balanced', max_iter=1000)
+model.fit(X_train, y_train)
+
+
+# STEP 5: EVALUATION
+
+y_pred = model.predict(X_test)
+
+print("\n--- Model Performance ---")
+print(f"Accuracy: {accuracy_score(y_test, y_pred):.2%}")
+print("\nConfusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+print("\nClassification Report (Focus on Recall for '1'):")
+print(classification_report(y_test, y_pred))
+
+# STEP 6: FEATURE IMPORTANCE
+
+importance = model.coef_[0]
+features = X.columns
+feature_importance = pd.DataFrame({'Feature': features, 'Score': importance})
+feature_importance = feature_importance.sort_values(by='Score', ascending=False)
+
+print("\n--- Key Drivers of Churn ---")
+print(feature_importance)
+
+
+# STEP 7: PREDICTION CALCULATOR
+
+def predict_churn(age, gender, tenure, subscription, bill, total_usage):
+    data = pd.DataFrame({
+        'Age': [age],
+        'Gender': [gender],
+        'Tenure_Months': [tenure],
+        'SubscriptionType': [subscription],
+        'MonthlyBill': [bill],
+        'TotalUsageGB': [total_usage]
+    })
+    return f"{model.predict_proba(data)[0][1]:.1%}"
+
+print("\n--- Live Test Scenarios ---")
+print("High Risk (High Bill, New Cust):", 
+      predict_churn(age=30, gender=1, tenure=1, subscription=2, bill=120, total_usage=50))
+
+print("Loyal (Low Bill, Old Cust):     ", 
+      predict_churn(age=45, gender=0, tenure=60, subscription=0, bill=40, total_usage=2000))
